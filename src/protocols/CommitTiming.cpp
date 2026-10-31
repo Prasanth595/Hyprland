@@ -20,7 +20,7 @@ CCommitTimerResource::CCommitTimerResource(UP<CWpCommitTimerV1>&& resource_, SP<
             return;
         }
 
-        if (m_surface->m_pending.pendingTimeout.has_value()) {
+        if (m_surface->m_pending.commitTimingTarget.has_value()) {
             r->error(WP_COMMIT_TIMER_V1_ERROR_TIMESTAMP_EXISTS, "Timestamp is already set");
             return;
         }
@@ -30,19 +30,15 @@ CCommitTimerResource::CCommitTimerResource(UP<CWpCommitTimerV1>&& resource_, SP<
             .tv_nsec = sc<long>(tvNsec),
         };
 
-        const auto delay = Time::till(target);
-
-        if (delay.count() <= 0) {
-            m_surface->m_pending.pendingTimeout.reset();
-            m_surface->m_pending.commitTimingTarget.reset();
-        } else {
-            m_surface->m_pending.pendingTimeout     = delay;
-            m_surface->m_pending.commitTimingTarget = Time::fromTimespec(&target);
-        }
+        m_surface->m_pending.commitTimingTarget = Time::fromTimespec(&target);
     });
 
     m_listeners.surfaceStateCommit = m_surface->m_events.stateCommit2.listen([this](auto state) {
-        if (!state || !state->pendingTimeout.has_value() || !m_surface || m_surface->isTearing())
+        if (!state || !state->commitTimingTarget.has_value() || !m_surface || m_surface->isTearing())
+            return;
+
+        const auto timeout = *state->commitTimingTarget - Time::steadyNow();
+        if (timeout <= Time::steady_dur::zero())
             return;
 
         m_surface->m_stateQueue.lock(state, LOCK_REASON_TIMER);
@@ -52,7 +48,7 @@ CCommitTimerResource::CCommitTimerResource(UP<CWpCommitTimerV1>&& resource_, SP<
 
         if (!state->timer) {
             state->timer = makeShared<CEventLoopTimer>(
-                state->pendingTimeout,
+                timeout,
                 [surface = m_surface, state](SP<CEventLoopTimer> self, void* data) {
                     if (!surface || !state)
                         return;
@@ -62,9 +58,7 @@ CCommitTimerResource::CCommitTimerResource(UP<CWpCommitTimerV1>&& resource_, SP<
                 nullptr);
             g_pEventLoopManager->addTimer(state->timer);
         } else
-            state->timer->updateTimeout(state->pendingTimeout);
-
-        state->pendingTimeout.reset();
+            state->timer->updateTimeout(timeout);
     });
 }
 
