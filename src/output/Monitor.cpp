@@ -2009,9 +2009,6 @@ bool CMonitor::attemptDirectScanout() {
 
     // #TODO this entire bit needs figuring out, vrr goes down the drain without it
     if (PBUFFER == m_output->state->state().buffer && *PSAME) {
-        PSURFACE->presentFeedback(Time::steadyNow(), m_self.lock());
-        PROTO::presentation->tagQueued(m_self.lock(), 0, m_tearingState.activelyTearing, m_vrrActive);
-
         if (m_scanoutNeedsCursorUpdate) {
             if (!m_state.test()) {
                 LOG(Log::TRACE, "attemptDirectScanout: failed basic test on cursor update");
@@ -2026,6 +2023,8 @@ bool CMonitor::attemptDirectScanout() {
 
             m_scanoutNeedsCursorUpdate = false;
         }
+
+        PSURFACE->presentFeedback(Time::steadyNow(), m_self.lock(), true);
 
         //#TODO this entire bit is bootleg deluxe, above bit is to not make vrr go down the drain, returning early here means fifo gets forever locked.
         if (PSURFACE->m_fifo && !m_tearingState.activelyTearing && *PSAMEFIFO)
